@@ -9,7 +9,7 @@ const cors = require("cors");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-
+require("dotenv").config();
 process.on("uncaughtException", (err) => {
   console.error(`Caught exception: ${err}`);
 });

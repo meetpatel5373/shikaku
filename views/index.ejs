@@ -1,28 +1,99 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
+    <meta charset="UTF-8" />
+    <title>Shikaku Puzzle</title>
+    <link rel="stylesheet" href="/css/styles.css" />
     <style>
-      canvas {
-        border: 1px solid #000;
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: #f2f2f2;
+        color: #333;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      h1 {
+        color: #2c3e50;
+      }
+
+      input,
+      button {
+        padding: 8px;
+        margin: 5px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+
+      button {
+        background-color: #3498db;
+        color: white;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background-color: #2980b9;
+      }
+
+      #board {
+        display: grid;
+        gap: 2px;
+        margin-top: 20px;
+        border: 2px solid #ccc;
+        position: relative;
+      }
+
+      .cell {
+        width: 40px;
+        height: 40px;
+        background-color: #fff;
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 14px;
+      }
+
+      .rectangle-box {
+        position: absolute;
+        display: grid;
+        border: 2px solid #000;
+        cursor: move;
+        opacity: 0.9;
+        font-size: 12px;
+        font-weight: bold;
+        align-items: center;
+        justify-items: center;
+        color: #000;
+      }
+
+      #board-info {
+        margin-top: 10px;
       }
     </style>
   </head>
   <body>
-    <canvas id="canvas" width="501" height="501"></canvas>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <h1>Shikaku Puzzle</h1>
+
+    <div>
+      <label>Width: <input type="number" id="width" value="5" /></label>
+      <label>Height: <input type="number" id="height" value="5" /></label>
+      <button onclick="createBoard()">Create Board</button>
+    </div>
+
+    <div id="board-info"></div>
+    <div id="board"></div>
+
     <script>
-      let squareId = 1;
-      const grid = [];
-      grid.squares = [];
       let boardId = null;
+      const CELL_SIZE = 40;
 
-      for (let x = 0; x < 10; x++) grid[x] = [];
-
-      $(document).ready(() => {
-        createBoard(5, 5); // Start 10x10 board
-      });
-
-      async function createBoard(width, height) {
+      async function createBoard() {
+        const width = document.getElementById("width").value;
+        const height = document.getElementById("height").value;
         const res = await fetch("/board", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -30,163 +101,97 @@
         });
         const data = await res.json();
         boardId = data.boardId;
-        await fetchAndDrawRectangles();
+        document.getElementById(
+          "board-info"
+        ).innerText = `Board created: ${boardId}`;
+
+        const board = document.getElementById("board");
+        board.style.gridTemplateColumns = `repeat(${width}, ${CELL_SIZE}px)`;
+        board.style.gridTemplateRows = `repeat(${height}, ${CELL_SIZE}px)`;
+        board.style.width = `${width * CELL_SIZE}px`;
+        board.style.height = `${height * CELL_SIZE}px`;
+        board.innerHTML = "";
+
+        for (let i = 0; i < width * height; i++) {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          board.appendChild(cell);
+        }
+
+        generateRectangles();
       }
 
-      async function fetchAndDrawRectangles() {
+      function createRectangleElement(rect, index) {
+        const rectDiv = document.createElement("div");
+        rectDiv.className = "rectangle-box";
+        rectDiv.style.width = `${rect.width * CELL_SIZE}px`;
+        rectDiv.style.height = `${rect.height * CELL_SIZE}px`;
+        rectDiv.style.backgroundColor = `hsl(${(index * 60) % 360}, 70%, 80%)`;
+        rectDiv.style.left = `${rect.x * CELL_SIZE}px`;
+        rectDiv.style.top = `${rect.y * CELL_SIZE}px`;
+        rectDiv.dataset.id = rect._id;
+        rectDiv.innerText = rect._id.slice(-2);
+
+        makeDraggable(rectDiv, rect._id, rect.width, rect.height);
+        return rectDiv;
+      }
+
+      function makeDraggable(element, rectId, width, height) {
+        let offsetX, offsetY;
+
+        element.onmousedown = function (e) {
+          offsetX = e.offsetX;
+          offsetY = e.offsetY;
+          document.onmousemove = function (e) {
+            element.style.left = `${e.pageX - board.offsetLeft - offsetX}px`;
+            element.style.top = `${e.pageY - board.offsetTop - offsetY}px`;
+          };
+
+          document.onmouseup = async function (e) {
+            document.onmousemove = null;
+            document.onmouseup = null;
+
+            const board = document.getElementById("board");
+            const newX = Math.floor((e.pageX - board.offsetLeft) / CELL_SIZE);
+            const newY = Math.floor((e.pageY - board.offsetTop) / CELL_SIZE);
+
+            const snapRes = await fetch(`/board/${boardId}/snap`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                rectangleId: rectId,
+                x: newX,
+                y: newY,
+              }),
+            });
+            const snapData = await snapRes.json();
+
+            element.style.left = `${newX * CELL_SIZE}px`;
+            element.style.top = `${newY * CELL_SIZE}px`;
+
+            const checkRes = await fetch(`/board/${boardId}/check`);
+            const checkData = await checkRes.json();
+            if (checkData.isWin) {
+              alert("You solved the puzzle!");
+            }
+
+            alert(snapData.message);
+          };
+        };
+      }
+
+      async function generateRectangles() {
         const res = await fetch(`/board/${boardId}/rectangles`, {
           method: "POST",
         });
         const data = await res.json();
 
-        grid.squares = [];
-        for (let x = 0; x < 10; x++) grid[x] = [];
+        const board = document.getElementById("board");
 
-        data.rectangles.forEach((r, i) => {
-          const square = {
-            id: i + 1,
-            textPos: { x: 0, y: 0 },
-            pos: { x: r.x, y: r.y, width: r.width, height: r.height },
-            rectId: r._id,
-          };
-          grid.squares.push(square);
-          updateGridWithSquare(square);
+        data.rectangles.forEach((r, index) => {
+          const rectElement = createRectangleElement(r, index);
+          board.appendChild(rectElement);
         });
-
-        drawCanvas();
-      }
-
-      function drawCanvas() {
-        const canvas = $("#canvas");
-        const context = canvas.get(0).getContext("2d");
-        updateCanvas(context);
-      }
-
-      function updateCanvas(context) {
-        context.clearRect(0, 0, 501, 501);
-        context.fillStyle = "white";
-        context.fillRect(0, 0, 500, 500);
-
-        for (const square of grid.squares) {
-          context.fillStyle = "#" + getColor(square.id);
-          context.fillRect(
-            3 + square.pos.x * 50,
-            3 + square.pos.y * 50,
-            square.pos.width * 50 - 6,
-            square.pos.height * 50 - 6
-          );
-        }
-
-        context.fillStyle = "black";
-        context.textAlign = "center";
-        for (const square of grid.squares) {
-          const textX = square.pos.x + square.textPos.x;
-          const textY = square.pos.y + square.textPos.y;
-          const surface = square.pos.width * square.pos.height;
-          context.fillText(surface, 25.5 + textX * 50, 25.5 + textY * 50);
-        }
-
-        for (let x = 0; x < 10; x++) {
-          for (let y = 0; y < 10; y++) {
-            context.strokeRect(0.5 + x * 50, 0.5 + y * 50, 50, 50);
-          }
-        }
-      }
-
-      function getColor(value) {
-        const color = (value * 1777781) % 16777213;
-        let hex = color.toString(16);
-        while (hex.length < 6) hex += "0";
-        return hex;
-      }
-
-      function getSquareAt(x, y) {
-        return grid[x][y];
-      }
-
-      let dragContext = null;
-      $("#canvas").on("mousedown", function (e) {
-        const x = Math.floor(e.offsetX / 50);
-        const y = Math.floor(e.offsetY / 50);
-        const square = getSquareAt(x, y);
-        console.log("square :>> ", square);
-        if (!square) return;
-
-        dragContext = {
-          square: square,
-          offsetX: x - square.pos.x,
-          offsetY: y - square.pos.y,
-        };
-
-        removeFromGrid(square);
-        $("#canvas").on("mousemove", drag);
-      });
-
-      $("#canvas").on("mouseup", async function (e) {
-        if (!dragContext) return;
-
-        const x = Math.floor(e.offsetX / 50) - dragContext.offsetX;
-        const y = Math.floor(e.offsetY / 50) - dragContext.offsetY;
-
-        dragContext.square.pos.x = Math.max(
-          0,
-          Math.min(10 - dragContext.square.pos.width, x)
-        );
-        dragContext.square.pos.y = Math.max(
-          0,
-          Math.min(10 - dragContext.square.pos.height, y)
-        );
-        grid.squares.push(dragContext.square);
-        updateGridWithSquare(dragContext.square);
-
-        // Call Snap API
-        await fetch(`/board/${boardId}/snap`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rectangleId: dragContext.square.rectId,
-            x: dragContext.square.pos.x,
-            y: dragContext.square.pos.y,
-          }),
-        });
-
-        // Check for win
-        const winRes = await fetch(`/board/${boardId}/check`);
-        const winData = await winRes.json();
-        if (winData.isWin) {
-          alert("🎉 You Win!");
-        }
-
-        dragContext = null;
-        $("#canvas").off("mousemove");
-        updateCanvas($("#canvas")[0].getContext("2d"));
-      });
-
-      function drag(e) {
-        const x = Math.floor(e.offsetX / 50) - dragContext.offsetX;
-        const y = Math.floor(e.offsetY / 50) - dragContext.offsetY;
-        const square = dragContext.square;
-        square.pos.x = Math.max(0, Math.min(10 - square.pos.width, x));
-        square.pos.y = Math.max(0, Math.min(10 - square.pos.height, y));
-        updateCanvas($("#canvas")[0].getContext("2d"));
-      }
-
-      function updateGridWithSquare(square) {
-        for (let x = 0; x < square.pos.width; x++) {
-          for (let y = 0; y < square.pos.height; y++) {
-            grid[square.pos.x + x][square.pos.y + y] = square;
-          }
-        }
-      }
-
-      function removeFromGrid(square) {
-        for (let x = 0; x < square.pos.width; x++) {
-          for (let y = 0; y < square.pos.height; y++) {
-            grid[square.pos.x + x][square.pos.y + y] = null;
-          }
-        }
-        const idx = grid.squares.indexOf(square);
-        if (idx !== -1) grid.squares.splice(idx, 1);
       }
     </script>
   </body>
